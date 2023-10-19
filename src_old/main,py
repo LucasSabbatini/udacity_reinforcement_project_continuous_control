@@ -1,0 +1,44 @@
+from unityagents import UnityEnvironment
+from trainer import train
+from policy import PPOAgent
+import torch
+import progressbar as pb
+
+
+
+
+env = UnityEnvironment(file_name='Reacher_Windows_x86_64/Reacher.exe')
+brain_name = env.brain_names[0]
+brain = env.brains[brain_name]
+env_info = env.reset(train_mode=True)[brain_name]
+
+num_agents = len(env_info.agents)
+# max_t = 1e5
+n_episodes = 300
+LR = 3e-4          # learning rate
+EPSILON = 1e-5      # Adam epsilon
+ROLLOUT_LENGTH = 2048
+BETA = 0.01
+EPSILON = 0.2
+
+
+state_size = env_info.vector_observations.shape[1]
+hidden_size = 512
+action_size = brain.vector_action_space_size
+
+widget = ['training loop: ', pb.Percentage(), ' ', 
+          pb.Bar(), ' ', pb.ETA() ]
+timer = pb.ProgressBar(widgets=widget, maxval=n_episodes).start()
+
+if __name__ == '__main__':
+    
+    policy = PPOAgent(state_size, action_size, hidden_size)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=LR, eps=EPSILON)
+    timer = 
+    
+    train(policy,
+          optimizer,
+          env,
+          timer,
+          n_episodes,
+          beta=)

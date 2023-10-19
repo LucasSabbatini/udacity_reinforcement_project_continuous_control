@@ -43,6 +43,34 @@ def collect_single_trajectory(env, policy, tmax=500):
     
     return actions_list, state_list, reward_list
 
+import torch
+def calculate_advantages(rollout, returns, num_agents, gamma=0.99, tau=0.95):
+    """ Given trajectory, compute advantage estimates at each time steps"""
+    processed_rollout = [None] * (len(rollout) - 1)
+    advantages = torch.Tensor(np.zeros((num_agents, 1)))
+
+    for i in reversed(range(len(rollout) - 1)):
+        states, value, actions, log_probs, rewards, dones = rollout[i]
+        dones = torch.Tensor(dones).unsqueeze(1)
+        rewards = torch.Tensor(rewards).unsqueeze(1)
+        actions = torch.Tensor(actions)
+        states = torch.Tensor(states)
+        next_value = rollout[i + 1][1]
+        
+        # V(s) = r + γ * V(s')
+        returns = rewards + gamma * dones * returns
+        
+        # L = r + γ*V(s') - V(s)
+        td_error = rewards + gamma * dones * next_value.detach() - value.detach()
+        
+        advantages = advantages * tau * gamma * dones + td_error
+        processed_rollout[i] = [states, actions, log_probs, returns, advantages]
+
+    states, actions, log_probs_old, returns, advantages = map(lambda x: torch.cat(x, dim=0), zip(*processed_rollout))
+    advantages = (advantages - advantages.mean()) / advantages.std()
+    return 
+
+
 def train(policy, optimizer, env, timer,
           episodes=500,
           epsilon=0.1,
