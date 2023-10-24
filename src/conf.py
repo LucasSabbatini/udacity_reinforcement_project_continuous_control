@@ -1,9 +1,8 @@
 
-
-
 # Training Hyperparameters
 EPISODES = 1000
-MAX_T = 2048
+# MAX_T = 2048
+MAX_T = 1000
 SGD_EPOCHS = 4
 # optimizer parameters
 LR = 3e-4

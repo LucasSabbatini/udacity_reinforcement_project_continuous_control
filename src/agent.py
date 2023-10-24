@@ -5,6 +5,8 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
+from loss import ppo_loss
 from conf import *
 
 
@@ -20,6 +22,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc2(x))
         return F.tanh(self.fc3(x))
     
+    
 class Critic(nn.Module):
     def __init__(self, state_size, value_size=1, hidden_size=64):
         super(Critic, self).__init__()
@@ -32,36 +35,39 @@ class Critic(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
     
+    
 class ActorCritic(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size=64, std=0.0):
+    def __init__(self, state_size, action_size, value_size=1, hidden_size=64, std=0.0):
         super(ActorCritic, self).__init__()
         self.actor = Actor(state_size, action_size, hidden_size)
-        self.critic = Critic(state_size, 1, hidden_size)
+        self.critic = Critic(state_size, value_size, hidden_size)
         
         self.log_std = nn.Parameter(torch.ones(1, action_size)*std)
         
     def forward(self, states): # TODO: LEARN WHAT THE FUCK THIS DOES
         obs = torch.FloatTensor(states)
         
-        # actor and critic outputs
-        mu = self.actor(obs)
+        # Critic
         values = self.critic(obs)
         
+        # Actor
+        mu = self.actor(obs)
         std = self.log_std.exp().expand_as(mu)
         dist = torch.distributions.Normal(mu, std)
         
         return dist, values
-
+    
+    
 class Agent():
     def __init__(self, num_agents, state_size, action_size):
         self.num_agents = num_agents
         self.state_size = state_size
         self.action_size = action_size
-        self.model = ActorCritic(state_size, action_size)
+        self.model = ActorCritic(state_size, action_size, value_size=1)
         self.optimizer = optim.Adam(self.model.parameters(), lr=LR, eps=EPSILON)
         self.model.train()
         
-    def act(self, states):
+    def act(self, states): # TODO: IS THIS CORRECT? WE SHOULD USE MU AS THE ACTIONS, AND NOT SAMPLE FROM THE DISTRIBUTION
         """Remember: states are state vectors for each agent
         It is used when collecting trajectories
         """
@@ -69,18 +75,9 @@ class Agent():
         actions = dist.sample() # sample an action from the distribution
         log_probs = dist.log_prob(actions) # calculate the log probability of that action
         log_probs = log_probs.sum(-1).unsqueeze(-1) # sum the log probabilities of all actions taken (in case of multiple actions) and reshape to (batch_size, 1)
+        
         return actions, log_probs, values
-    
 
-    def batcher(self, BATCH_SIZE, states, actions, log_probs_old, returns, advantages):
-        """Convert trajectories into learning batches."""
-        # for _ in range(states.size(0) // BATCH_SIZE):
-        rand_ids = np.random.randint(0, states.size(0), BATCH_SIZE)
-        yield states[rand_ids, :], actions[rand_ids, :], log_probs_old[rand_ids, :], returns[rand_ids, :], advantages[rand_ids, :]
-
-    def loss(self):
-        pass
-    
     def learn(self, states, actions, log_probs_old, returns, advantages, sgd_epochs=4):
         """ Performs a learning step given a batch of experiences
         
@@ -88,34 +85,24 @@ class Agent():
         using the proximal policy ratio clipped objective function
         """        
 
-        for _ in range(sgd_epochs):
-            # for _ in range(states.size(0) // BATCH_SIZE):
+        num_batches = states.size(0) // BATCH_SIZE
+        for i in range(sgd_epochs):
+            batch_count = 0
+            batch_ind = 0
+            for i in range(num_batches):
+                sampled_states = states[batch_ind:batch_ind+BATCH_SIZE, :]
+                sampled_actions = actions[batch_ind:batch_ind+BATCH_SIZE, :]
+                sampled_log_probs_old = log_probs_old[batch_ind:batch_ind+BATCH_SIZE, :]
+                sampled_returns = returns[batch_ind:batch_ind+BATCH_SIZE, :]
+                sampled_advantages = advantages[batch_ind:batch_ind+BATCH_SIZE, :]
                 
-            for sampled_states, sampled_actions, sampled_log_probs_old, sampled_returns, sampled_advantages in self.batcher(BATCH_SIZE, states, actions, log_probs_old, returns, advantages):
-
-                dist, values = self.model(sampled_states)
+                L = ppo_loss(self.model, sampled_states, sampled_actions, sampled_log_probs_old, sampled_returns, sampled_advantages)
                 
-                log_probs = dist.log_prob(sampled_actions)
-                log_probs = torch.sum(log_probs, dim=1, keepdim=True)
-                entropy = dist.entropy().mean()
-                
-                # r(θ) =  π(a|s) / π_old(a|s)
-                ratio = (log_probs - sampled_log_probs_old).exp()
-                
-                # Surrogate Objctive : L_CPI(θ) = r(θ) * A
-                obj = ratio * sampled_advantages
-                
-                # clip ( r(θ), 1-Ɛ, 1+Ɛ )*A
-                obj_clipped = ratio.clamp(1.0 - PPO_CLIP_EPSILON, 1.0 + PPO_CLIP_EPSILON) * sampled_advantages
-                
-                # L_CLIP(θ) = E { min[ r(θ)A, clip ( r(θ), 1-Ɛ, 1+Ɛ )*A ] - β * KL }
-                policy_loss = -torch.min(obj, obj_clipped).mean(0) - BETA * entropy.mean()
-                
-                # L_VF(θ) = ( V(s) - V_t )^2
-                value_loss = 0.5 * (sampled_returns - values).pow(2).mean()
-               
-
                 self.optimizer.zero_grad()
-                (policy_loss + value_loss).backward()
+                (L).backward()
                 nn.utils.clip_grad_norm_(self.model.parameters(), GRADIENT_CLIP)
-                self.optimizer.step() 
+                self.optimizer.step()
+                
+                batch_ind += BATCH_SIZE
+                batch_count += 1
+            
