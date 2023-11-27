@@ -2,6 +2,7 @@ import numpy as np
 from pprint import pprint
 import torch
 import os, sys
+import csv
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agent import Agent
@@ -65,3 +66,13 @@ def load_trained_agent(env, ckpt_file):
     # agent.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
     return agent
+
+
+def save_training_scores(row_to_append, filename):
+        
+    with open(filename, 'a', newline='') as file:
+        # Create a writer object
+        writer = csv.writer(file)
+        
+        # Write the row to the file
+        writer.writerow(row_to_append)

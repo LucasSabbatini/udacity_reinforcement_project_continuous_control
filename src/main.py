@@ -19,7 +19,6 @@ if __name__=="__main__":
     state_size = env_info.vector_observations.shape[1]
     action_size = brain.vector_action_space_size
 
-    
     # Instantiate the agent
     agent = Agent(num_agents, state_size, action_size)
     print(f"Agent instantiated.")
